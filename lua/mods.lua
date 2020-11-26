@@ -1,37 +1,34 @@
-local _ENV = xero
-
-local function loadcommand(self)
-	self:vanishpoint(scx, scy):fov(45)
-	for pn = 1, 2 do
-		function temp(proxy, child)
-			child
-				:visible(false)
-				:sleep(9e9)
-			proxy
-				:SetTarget(child)
-				:xy(scx * (pn - 0.5), scy)
-				:zoom(sh / 480)
+return Def.ActorFrame {
+	LoadCommand = xero(function(self)
+		-- judgment / combo proxies
+		for pn = 1, 2 do
+			setupJudgeProxy(PJ[pn], P[pn]:GetChild('Judgment'), pn)
+			setupJudgeProxy(PC[pn], P[pn]:GetChild('Combo'), pn)
 		end
-		temp(proxy.notefield[pn], P[pn]:GetChild'NoteField')
-		temp(proxy.judge[pn], P[pn]:GetChild'Judgment')
-		temp(proxy.combo[pn], P[pn]:GetChild'Combo')
-	end
-	
-	-- your code here
-	
-end
-
-local af = Def.ActorFrame {
-	LoadCommand = loadcommand,
-	
-	
-	Def.ActorProxy { Name = "proxy.combo[1]" },
-	Def.ActorProxy { Name = "proxy.combo[2]" },
-	Def.ActorProxy { Name = "proxy.judge[1]" },
-	Def.ActorProxy { Name = "proxy.judge[2]" },
-	Def.ActorProxy { Name = "proxy.notefield[1]" },
-	Def.ActorProxy { Name = "proxy.notefield[2]" },
-
+		-- player proxies
+		for pn = 1, #PP do
+			PP[pn]:SetTarget(P[pn])
+			P[pn]:visible(false)
+		end
+		-- your code goes here here:
+		
+	end),
+	Def.ActorProxy {
+		Name = "PC[1]",
+	},
+	Def.ActorProxy {
+		Name = "PC[2]",
+	},
+	Def.ActorProxy {
+		Name = "PJ[1]",
+	},
+	Def.ActorProxy {
+		Name = "PJ[2]",
+	},
+	Def.ActorProxy {
+		Name = "PP[1]",
+	},
+	Def.ActorProxy {
+		Name = "PP[2]",
+	},
 }
-
-return af

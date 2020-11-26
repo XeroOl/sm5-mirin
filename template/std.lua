@@ -1,3 +1,5 @@
+ --std.xml
+
 local xero = setmetatable(xero, xero)
 xero.__index = _G
 
@@ -20,7 +22,7 @@ function xero:__call(f, name)
 	return f
 end
 
-local _ENV = xero
+xero()
 
 local function insertion_sort(t, l, h, c)
 	for i = l + 1, h do
@@ -165,3 +167,24 @@ function perframe_data_structure(comparator)
 		n = 0,
 	}
 end
+
+local stringbuilder_mt =  {
+	__index = {
+		build = table.concat,
+		sep = function(self, sep)
+			if self[1] then
+				self(sep)
+			end
+		end,
+	},
+	__tostring = table.concat,
+	__call = function(self, a)
+		table.insert(self, tostring(a))
+		return self
+	end,
+}
+
+function stringbuilder()
+	return setmetatable({}, stringbuilder_mt)
+end
+return Def.Actor {}

@@ -1,8 +1,8 @@
-local path_to_plugins = GAMESTATE:GetCurrentSong():GetSongDir() .. 'plugins/'
-local plugins = Def.ActorFrame {}
-for i, v in ipairs(FILEMAN:GetDirListing(path_to_plugins)) do
-	plugins = plugins .. {
-		LoadActor('../plugins/' .. v)
-	}
+local path_to_plugins = GAMESTATE:GetCurrentSong():GetSongDir()..'plugins/'
+local af = Def.ActorFrame {}
+for _, filename in ipairs(FILEMAN:GetDirListing(path_to_plugins)) do
+	if string.sub(p[i], -4, -1) == '.lua' then
+		af[#af + 1] = loadfile(path_to_plugins..filename)()
+	end
 end
-return plugins
+return af

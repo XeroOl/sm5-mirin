@@ -1,6 +1,20 @@
-local _ENV = xero
+local POptions = {
+	GAMESTATE:GetPlayerState(0):GetPlayerOptions('ModsLevel_Song'),
+	GAMESTATE:GetPlayerState(1):GetPlayerOptions('ModsLevel_Song'),
+}
+local function ApplyModifiers(str, pn)
+	if pn then
+		POptions[pn]:FromString(str)
+	else
+		POptions[1]:FromString(str)
+		POptions[2]:FromString(str)
+	end
+end
+ --template.xml
 
-max_pn = 2 -- default: `2`
+xero()
+
+max_pn = 2 -- default: `8`
 local debug_print_applymodifier_input = false -- default: `false`
 local debug_print_mod_targets = false -- default: `false`
 
@@ -22,6 +36,7 @@ tonumber = tonumber
 tostring = tostring
 math = copy(math)
 table = copy(table)
+string = copy(string)
 
 dw = DISPLAY:GetDisplayWidth()
 dh = DISPLAY:GetDisplayHeight()
@@ -31,7 +46,6 @@ scy = SCREEN_CENTER_Y
 sw = SCREEN_WIDTH
 sh = SCREEN_HEIGHT
 e = 'end'
-
 plr = {1, 2}
 
 function sprite(self)
@@ -51,9 +65,20 @@ function aft(self)
 	self:Create()
 end
 
-local function screen_error(output, depth, name)
-	local depth = 3 + (depth or 0)
-	local _, err = pcall(error, name and (name .. ':' .. output) or output, depth)
+function aftsprite(aft, sprite)
+	sprite:SetTexture(aft:GetTexture())
+end
+
+function setupJudgeProxy(proxy, target, pn)
+	proxy:SetTarget(target)
+	proxy:xy(scx * (pn-.5), scy)
+	target:visible(false)
+	target:sleep(9e9)
+end
+
+function screen_error(output, depth, name)
+	local depth = 3 + (type(depth) == 'number' and depth or 0)
+	local _, err = pcall(error, type(name) == 'string' and (name .. ':' .. output) or output, depth)
 	SCREENMAN:SystemMessage(err)
 end
 
@@ -62,8 +87,59 @@ local function push(self, obj)
 	self[self.n] = obj
 end
 
+-- mod aliases, or ease vars
+local aliases = {}
+local reverse_aliases = {}
+
+-- alias a mod
+function alias(self, depth, name)
+	local depth = 1 + (type(depth) == 'number' and depth or 0)
+	local name = name or 'alias'
+	if type(self) ~= 'table' then
+		screen_error('curly braces expected', depth, name)
+		return alias
+	end
+	local a, b = self[1], self[2]
+	if type(a) ~= 'string' then
+		screen_error('unexpected argument 1', depth, name)
+		return alias
+	end
+	if type(b) ~= 'string' then
+		screen_error('unexpected argument 2', depth, name)
+		return alias
+	end
+	a, b = string.lower(a), string.lower(b)
+	-- TODO make alias logic clearer
+	local collection = {a}
+	while aliases[b] do
+		if reverse_aliases[b] then
+			for _, item in ipairs(reverse_aliases[b]) do
+				table.insert(collection, item)
+			end
+			reverse_aliases[b] = nil
+		end
+		b = aliases[b]
+	end
+	reverse_aliases[b] = reverse_aliases[b] or {}
+	for _, name in ipairs(collection) do
+		aliases[name] = b
+		table.insert(reverse_aliases[b], name)
+	end
+	return alias
+end
+
+function normalize_mod(name)
+	name = string.lower(name)
+	return aliases[name] or name
+end
+
 local default_plr = {1, 2}
 
+function get_plr()
+	return rawget(xero, 'plr') or default_plr
+end
+
+-- the table of eases/add/set
 local eases = {n = 0}
 
 function ease(self, depth, name)
@@ -91,14 +167,13 @@ function ease(self, depth, name)
 			screen_error('invalid mod percent', depth, name)
 			return ease
 		end
-		if type(self[i + 1]) ~= 'string' and type(self[i + 1]) ~= 'function' then
+		if type(self[i + 1]) ~= 'string' then
 			screen_error('invalid mod', depth, name)
 			return ease
 		end
 		i = i + 2
 	end
 	self.n = i - 1
-	
 	local result = self[3](1)
 	if type(result) ~= 'number' then
 		screen_error('invalid ease function', depth, name)
@@ -110,7 +185,7 @@ function ease(self, depth, name)
 	if self.mode or self.m then
 		self[2] = self[2] - self[1]
 	end
-	local plr = self.plr or rawget(xero, plr) or default_plr
+	local plr = self.plr or get_plr()
 	if type(plr) == 'number' then
 		self.plr = plr
 		push(eases, self)
@@ -123,9 +198,7 @@ function ease(self, depth, name)
 		end
 	else
 		screen_error('invalid plr', depth, name)
-		return ease
 	end
-	
 	return ease
 end
 
@@ -136,6 +209,9 @@ function add(self, depth, name)
 	ease(self, depth, name)
 	return add
 end
+
+-- eases are loaded after the template, so this needs to be declared early
+local function instant() return 1 end
 
 function set(self, depth, name)
 	local depth = 1 + (type(depth) == 'number' and depth or 0)
@@ -149,39 +225,6 @@ function set(self, depth, name)
 	return set
 end
 
--- mod aliases, or ease vars
-local aliases = {}
-
--- reverse aliases, looks up the name of functions
-local reverse_aliases = {}
-
--- alias a mod (useful if you want string names for function-eases)
-function alias(key, value)
-	-- accept {} syntax
-	if type(key) == 'table' then
-		key, value = key[1], key[2]
-	end
-	
-	if type(key) ~= 'string' then
-		screen_error('unexpected argument 1' , 1, 'alias')
-		return alias
-	end
-		
-	if type(value) ~= 'string' and type(value) ~= 'function' and type(value) ~= 'nil' then
-		screen_error('unexpected argument 2' , 1, 'alias')
-		return alias
-	end
-	
-	-- make the alias
-	aliases[key] = value or function() end
-	
-	-- mark the reverse alias
-	reverse_aliases[aliases[key]] = key
-	
-	-- return for chain calls
-	return alias
-end
-
 -- the table of scheduled functions and perframes
 local funcs = {n = 0}
 
@@ -193,75 +236,316 @@ function func(self, depth, name)
 		return func
 	end
 	
-	local a, b, c = self[1], self[2], self[3]
-	
-	-- three possible valid configurations
-	if type(a) == 'number' and type(b) == 'function' then
-		a, b, c = a, nil, b
-	elseif type(a) == 'number' and type(b) == 'number' and type(c) == 'function' then
-		-- a, b, c = a, b, c
-	elseif type(a) == 'string' then
-		return func
-	else
-		screen_error('invalid arguments', depth, name)
-		return func
-	end
-	self[1], self[2], self[3] = a, b, c
 	if self.mode or self.m then
-		self[2] = self[2] - self[1]
+		if type(self[2]) == number then
+			self[2] = self[2] - self[1]
+		end
+		if type(self.persist) == 'number' then
+			self.persist = self.persist - self[1]
+		end
 	end
 	
-	self.mods = {}
-	for pn = 1, max_pn do
-		self.mods[pn] = {}
+	local can_use_poptions = false
+	local a, b, c, d, e, f = self[1], self[2], self[3], self[4], self[5], self[6]
+	-- function ease, type 3
+	if type(a) == 'number' and type(b) == 'number' and type(c) == 'function' and type(d) == 'number' and type(e) == 'number' and type(f) == 'function' then
+		local eas = c
+		a, b, c = a, b, function(beat)
+			f(d + (e - d) * eas((beat - a) / b))
+		end
+	-- function ease, type 2
+	elseif type(a) == 'number' and type(b) == 'number' and type(c) == 'function' and type(d) == 'number' and type(e) == 'function' then
+		local eas = c
+		a, b, c = a, b, function(beat)
+			e(d * eas((beat - a) / b))
+		end
+	-- function ease, type 1
+	elseif type(a) == 'number' and type(b) == 'number' and type(c) == 'function' and type(d) == 'function' then
+		local eas = c
+		a, b, c = a, b, function(beat)
+			d(eas((beat - a) / b))
+		end
+	-- perframe
+	elseif type(a) == 'number' and type(b) == 'number' and type(c) == 'function' then
+		a, b, c = a, b, c
+		can_use_poptions = true
+	-- scheduling a message
+	elseif type(a) == 'number' and type(b) == 'function' then
+		a, b, c = a, nil, b
+		local fn = c
+		if self.persist ~= nil and self.persist ~= true then
+			if self.persist == false then
+				self.persist = 0.5
+			end
+			local len = self.persist
+			c = function(beat)
+				if beat < a + len then
+					fn(beat)
+				end
+			end
+		end
+	else
+		screen_error('overload resolution failed: check argument types', depth, name)
+		return func
 	end
-	
+	self[1], self[2], self[3], self[4], self[5], self[6] = a, b, c, nil, nil, nil
+	if can_use_poptions then
+		self.mods = {}
+		for pn = 1, max_pn do
+			self.mods[pn] = {}
+		end
+	end
 	push(funcs, self)
-	
 	if self.defer then
 		self.priority = -funcs.n
 	else
 		self.priority = funcs.n
 	end
-	
+	-- if it's a function-ease variant then make it persist
+	if d then
+		local end_beat = a + b
+		func {end_beat, function() c(end_beat) end, persist = self.persist, defer = self.defer}
+	end
 	return func
 end
 
-function on_command(self)
+-- auxilliary variables
+local auxes = {}
+
+function aux(self, depth, name)
+	local depth = 1 + (type(depth) == 'number' and depth or 0)
+	local name = name or 'aux'
+	if type(self) == 'string' then
+		local v = self
+		auxes[v] = true
+	elseif type(self) == 'table' then
+		for i = 1, #self do
+			aux(self[i], depth, name)
+		end
+	else
+		screen_error('aux var name must be a string', depth, name)
+	end
+	return aux
+end
+
+-- the table of nodes
+local nodes = {n = 0}
+local node_start
+
+function node(self, depth, name)
+	local depth = 1 + (type(depth) == 'number' and depth or 0)
+	local name = name or 'node'
+	if type(self) ~= 'table' then
+		screen_error('curly braces expected', depth, name)
+		return node
+	end
+	local i = 1
+	local inputs = {}
+	local reverse_in = {}
+	while type(self[i]) == 'string' do
+		table.insert(inputs, self[i])
+		set({-9e9, 0, self[i]}, depth, name)
+		i = i + 1
+	end
+	if i == 1 then
+		screen_error('inputs to node expected', depth, name)
+	end
+	local fn = self[i]
+	if type(fn) ~= 'function' then
+		screen_error('node function expected', depth, name)
+	end
+	i = i + 1
+	local out = {}
+	while type(self[i]) == 'string' do
+		table.insert(out, self[i])
+		i = i + 1
+	end
+	local result = {inputs, out, fn}
+	result.priority = self.defer and -nodes.n or nodes.n
+	push(nodes, result)
+	return node
+end
+
+local mods = {}
+mod_buffer = stringbuilder()
+
+function compile_nodes()
+	local terminators = {}
+	for _, nd in ipairs(nodes) do
+		for _, mod in ipairs(nd[2]) do
+			terminators[mod] = true
+		end
+	end
+	for k, _ in pairs(terminators) do
+		push(nodes, {{k}, {}, nil, nil, nil, nil, nil, true})
+	end
+	local start = {}
+	local locked = {}
+	local last = {}
+	for _, nd in ipairs(nodes) do
+		-- struct node {
+		--     list<string> inputs;
+		--     list<string> out;
+		--     lua_function fn;
+		--     list<struct node> children;
+		--     list<list<struct node>> parents; // the inner lists also have a [0] field that is a boolean
+		--     lua_function real_fn;
+		--     list<map<string, float>> outputs;
+		--     bool terminator;
+		--     int seen;
+		-- }
+		local terminator = nd[8]
+		if not terminator then
+			nd[4] = {} -- children
+			nd[7] = {} -- outputs
+			for pn = 1, max_pn do
+				nd[7][pn] = {}
+			end
+		end
+		nd[5] = {} -- parents
+		local inputs = nd[1]
+		local out = nd[2]
+		local fn = nd[3]
+		local parents = nd[5]
+		local outputs = nd[7]
+		local reverse_in = {}
+		for i, v in ipairs(inputs) do
+			reverse_in[v] = true
+			start[v] = start[v] or {}
+			parents[i] = {}
+			if not start[v][locked] then
+				table.insert(start[v], nd)
+			end
+			if start[v][locked] then
+				parents[i][0] = true
+			end
+			for _, pre in ipairs(last[v] or {}) do
+				table.insert(pre[4], nd)
+				table.insert(parents[i], pre[7])
+			end
+		end
+		for i, v in ipairs(out) do
+			if reverse_in[v] then
+				start[v][locked] = true
+				last[v] = {nd}
+			elseif not last[v] then
+				last[v] = {nd}
+			else
+				table.insert(last[v], nd)
+			end
+		end
+		
+		local function escapestr(s)
+			return '\'' .. string.gsub(s, '[\\\']', '\\%1') .. '\''
+		end
+		local function list(code, i, sep)
+			if i ~= 1 then code(sep) end
+		end
+		
+		local code = stringbuilder()
+		local function emit_inputs()
+			for i, mod in ipairs(inputs) do
+				list(code, i, ',')
+				for j = 1, #parents[i] do
+					list(code, j, '+')
+					code'parents['(i)']['(j)'][pn]['(escapestr(mod))']'
+				end
+				if not parents[i][0] then
+					list(code, #parents[i] + 1, '+')
+					code'mods[pn]['(escapestr(mod))']'
+				end
+			end
+		end
+		local function emit_outputs()
+			for i, mod in ipairs(out) do
+				list(code, i, ',')
+				code'outputs[pn]['(escapestr(mod))']'
+			end
+			return out[1]
+		end
+		code
+		'return function(outputs, parents, mods, fn)\n'
+			'return function(pn)\n'
+				if terminator then
+					code'mods[pn]['(escapestr(inputs[1]))'] = ' emit_inputs() code'\n'
+				else
+					if emit_outputs() then code' = ' end code 'fn(' emit_inputs() code', pn)\n'
+				end
+				code
+			'end\n'
+		'end\n'
+		
+		local compiled = assert(loadstring(code:build()))()
+		nd[6] = compiled(outputs, parents, mods, fn)
+		if not terminator then
+			for pn = 1, max_pn do
+				nd[6](pn)
+			end
+		end
+	end
+	for mod, v in pairs(start) do
+		v[locked] = nil
+	end
+	node_start = start
+end
+
+-- scans through all the tables
+-- replaces aliases with their respective mods
+local function resolve_aliases()
+	-- ease
+	for _, e in ipairs(eases) do
+		for i = 5, e.n, 2 do e[i] = normalize_mod(e[i]) end
+	end
+	-- aux
+	local new_auxes = {}
+	for mod, _ in pairs(auxes) do
+		new_auxes[normalize_mod(mod)] = true
+	end
+	auxes = new_auxes
+	-- node
+	for _, node_entry in ipairs(nodes) do
+		local input = node_entry[1]
+		local output = node_entry[2]
+		for i = 1, #input do input[i] = normalize_mod(input[i]) end
+		for i = 1, #output do output[i] = normalize_mod(output[i]) end
+	end
+end
+
+-- takes every actor with a Name= and places it in the xero table
+local function scan_named_actors()
 	local mt = {}
 	function mt.__index(self, k)
 		self[k] = setmetatable({}, mt)
 		return self[k]
 	end
-	
 	local actors = setmetatable({}, mt)
-	
 	local list = {n = 0}
-	local code = {n = 0}
-	
-	local function sweep(actor)
+	local code = stringbuilder()
+	local function sweep(actor, skip)
 		if actor.GetNumChildren then
-			for i = 1, actor:GetNumChildren() do
-				sweep(actor:GetChildAt(i))
+			for i = 0, actor:GetNumChildren() - 1 do
+				sweep(actor:GetChildAt(1 + (i)))
 			end
 		end
-		
+		if skip then
+			return
+		end
 		local name = actor:GetName()
-		if name and name ~= '' and not name:find('/') then
-			push(list, actor)
-			local n = code.n
-			code[n + 1], code[n + 2], code[n + 3], code[n + 4], code[n + 5] = '\tactors.', name, ' = list[', list.n, ']\n'
-			code.n = code.n + 5
+		if name and name ~= '' then
+			if loadstring('t.'..name..'=t') then
+				push(list, actor)
+				code'actors.'(name)' = list['(list.n)']\n'
+			else
+				SCREENMAN:SystemMessage('invalid actor name: \''..name..'\'')
+			end
 		end
 	end
 	
-	push(code, 'return function(list, actors)\n')
-	sweep(foreground)
-	push(code, 'end')
+	code'return function(list, actors)\n'
+		sweep(foreground, true)
+	code'end'
 	
-	local code = table.concat(code)
-	
-	local load_actors = xero(assert(loadstring(code)))()
+	local load_actors = xero(assert(loadstring(code:build())))()
 	load_actors(list, actors)
 	
 	local function clear_metatables(tab)
@@ -272,31 +556,28 @@ function on_command(self)
 			end
 		end
 	end
-	
 	clear_metatables(actors)
 	
 	for name, actor in pairs(actors) do
 		xero[name] = actor
 	end
 	
+end
+
+function on_command(self)
+	scan_named_actors()
 	self:queuecommand('BeginUpdate')
-	
 end
 
 function begin_update_command(self)
 	
 	for _, element in ipairs {
-		'Overlay',
-		'Underlay',
-		'ScoreP1',
-		'ScoreP2',
-		'LifeP1',
-		'LifeP2',
+		'Overlay', 'Underlay',
+		'ScoreP1', 'ScoreP2',
+		'LifeP1', 'LifeP2',
 	} do
 		local child = SCREENMAN:GetTopScreen():GetChild(element)
-		if child then
-			child:visible(false)
-		end
+		if child then child:visible(false) end
 	end
 	
 	P = {}
@@ -317,25 +598,58 @@ function begin_update_command(self)
 			return a[1] < b[1]
 		end
 	end)
-	
-	-- de-alias the alias table
-	for key, value in pairs(aliases) do
-		while aliases[value] do
-			value = aliases[value]
-		end
-		aliases[key] = value
-	end
-	
-	-- de-alias the ease table
-	for _, entry in ipairs(eases) do
-		for i = 5, entry.n, 2 do
-			entry[i] = aliases[entry[i]] or entry[i]
-		end
-	end
+	stable_sort(nodes, function(a, b)
+		local x, y = a.priority, b.priority
+		return x * x * y < x * y * y
+	end)
+	resolve_aliases()
+	compile_nodes()
 	
 	self:luaeffect('Update')
 	
 end
+
+-- zoom
+aux 'zoom'
+node {
+	'zoom', 'zoomx', 'zoomy',
+	function(zoom, x, y)
+		local m = zoom * 0.01
+		return m * x, m * y
+	end,
+	'zoomx', 'zoomy',
+	defer = true,
+}
+set {-9e9, 100, 'zoom', 100, 'zoomx', 100, 'zoomy'}
+
+-- movex
+for _, a in ipairs {'x', 'y', 'z'} do
+	aux {'move' .. a}
+	node {
+		'move' .. a,
+		function(a)
+			return a, a, a, a, a, a, a, a
+		end,
+		'move'..a..'0', 'move'..a..'1', 'move'..a..'2', 'move'..a..'3',
+		'move'..a..'4', 'move'..a..'5', 'move'..a..'6', 'move'..a..'7',
+		defer = true,
+	}
+end
+
+-- xmod
+aux 'xmod' 'cmod'
+node {
+	'xmod', 'cmod',
+	function(xmod, cmod)
+		if cmod == 0 then
+			mod_buffer(string.format('*-1 %fx', xmod))
+		else
+			mod_buffer(string.format('*-1 %fx,*-1 c%f', xmod, cmod))
+		end
+	end,
+	defer = true,
+}
+set {-9e9+1, 1, 'xmod'}
 
 local targets_mt = {__index = function() return 0 end}
 
@@ -348,8 +662,8 @@ local mods_mt = {}
 for pn = 1, max_pn do
 	mods_mt[pn] = {__index = targets[pn]}
 end
-
-local mods = {}
+-- defined earlier
+local mods = mods
 for pn = 1, max_pn do
 	mods[pn] = setmetatable({}, mods_mt[pn])
 end
@@ -362,10 +676,10 @@ for pn = 1, max_pn do
 	local mods_pn = mods[pn]
 	local mt = {
 		__index = function(self, k)
-			return mods_pn[aliases[k] or k]
+			return mods_pn[normalize_mod(k)]
 		end,
 		__newindex = function(self, k, v)
-			k = aliases[k] or k
+			k = normalize_mod(k)
 			mods_pn[k] = v
 			if v then
 				poptions_logging_target[pn][k] = true
@@ -385,18 +699,11 @@ local active_funcs = perframe_data_structure(function(a, b)
 	return x * x * y < x * y * y
 end)
 
+ApplyModifiers('clearall,*0 0x,*-1 overhead')
 -- default eases
-function xmod(x) return '*9e9 ' .. x .. 'x' end
-function cmod(c) return '*9e9 c' .. c end
-alias {'xmod', xmod} {'cmod', cmod}
-ease {0, 0, function() return 1 end, 100, 'zoom', 100, 'zoomx', 100, 'zoomy', 100, 'zoomz'}
 
 local function apply_modifiers(str, pn)
-	GAMESTATE:GetPlayerState(pn - 1):GetPlayerOptions('ModsLevel_Song'):FromString(str)
-end
-
-for pn = 1, max_pn do
-	apply_modifiers('clearall,*0 0x,*9e9 overhead', pn)
+	ApplyModifiers(str, pn)
 end
 
 if debug_print_applymodifier_input then
@@ -412,11 +719,34 @@ if debug_print_applymodifier_input then
 	end
 end
 
+local seen = 1
+local active_nodes = {}
+local active_terminators = {}
+local propagateAll, propagate
+function propagateAll(nodes)
+	if nodes then
+		for _, nd in ipairs(nodes) do
+			propagate(nd)
+		end
+	end
+end
+function propagate(nd)
+	if nd[9] ~= seen then
+		nd[9] = seen
+		if nd[8] then
+			table.insert(active_terminators, nd)
+		else
+			propagateAll(nd[4])
+			table.insert(active_nodes, nd)
+		end
+	end
+end
+
 local oldbeat = 0
 function update_command(self)
 	
 	local beat = GAMESTATE:GetSongBeat()
-	if beat == oldbeat then return end
+	if beat <= oldbeat then return end
 	oldbeat = beat
 	
 	while eases_index <= eases.n and eases[eases_index][1] < beat do
@@ -478,9 +808,11 @@ function update_command(self)
 			poptions_logging_target = e.mods
 			e[3](beat, poptions)
 		else
-			for pn = 1, max_pn do
-				for mod, _ in e.mods[pn] do
-					mods[pn][mod] = mods[pn][mod] + 0
+			if e.mods then
+				for pn = 1, max_pn do
+					for mod, _ in e.mods[pn] do
+						mods[pn][mod] = mods[pn][mod] + 0
+					end
 				end
 			end
 			active_funcs:remove()
@@ -488,47 +820,54 @@ function update_command(self)
 	end
 	
 	for pn = 1, max_pn do
-		local modifiers = {n = 0}
-		for mod, percent in pairs(mods[pn]) do
-			local modstring
-			if type(mod) == 'function' then
-				modstring = mod(percent, pn)
-				if modstring then
-					push(modifiers, modstring)
-				end
-			else
-				modstring = '*9e9 ' .. percent .. ' ' .. mod
-				push(modifiers, modstring)
+		if P[pn] then
+			mod_buffer = stringbuilder()
+			seen = seen + 1
+			for k in pairs(mods[pn]) do
+				-- identify all nodes to execute this frame
+				propagateAll(node_start[k])
 			end
-			mods[pn][mod] = nil
-		end
-		if modifiers.n ~= 0 then
-			local str = table.concat(modifiers, ',')
-			apply_modifiers(str, pn)
+			for i = 1, #active_nodes do
+				-- run all the nodes
+				table.remove(active_nodes)[6](pn)
+			end
+			for i = 1, #active_terminators do
+				-- run all the nodes marked as 'terminator'
+				table.remove(active_terminators)[6](pn)
+			end
+			for mod, percent in pairs(mods[pn]) do
+				if not auxes[mod] then
+					mod_buffer('*-1 '..percent..' '..mod)
+				end
+				mods[pn][mod] = nil
+			end
+			if mod_buffer[1] then
+				apply_modifiers(mod_buffer:build(','), pn)
+			end
 		end
 	end
 	
 	if debug_print_mod_targets then
 		if debug_print_mod_targets == true or debug_print_mod_targets < beat then
 			for pn = 1, max_pn do
-				local outputs = {}
-				local i = 0
-				for k, v in pairs(targets[pn]) do
-					if v ~= 0 then
-						i = i + 1
-						outputs[i] = reverse_aliases[k] or tostring(k) .. ': ' .. tostring(v)
+				if P[pn] then
+					local outputs = {}
+					local i = 0
+					for k, v in pairs(targets[pn]) do
+						if v ~= 0 then
+							i = i + 1
+							outputs[i] = tostring(k) .. ': ' .. tostring(v)
+						end
 					end
+					print('Player ' .. pn .. ' at beat ' .. beat .. ' --> ' .. table.concat(outputs, ', '))
 				end
-				print('Player ' .. pn .. ' at beat ' .. beat .. ' --> ' .. table.concat(outputs, ', '))
 			end
 			debug_print_mod_targets = (debug_print_mod_targets == true)
 		end
 	end
 end
-
-
 return Def.ActorFrame {
-	BeginUpdateCommand = begin_update_command,
-	OnCommand = on_command,
-	UpdateCommand = update_command,
+	OnCommand = xero.on_command,
+	BeginUpdateCommand = xero.begin_update_command,
+	UpdateCommand = xero.update_command,
 }

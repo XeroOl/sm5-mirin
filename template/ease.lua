@@ -1,4 +1,7 @@
+ --ease.xml
 xero()
+
+-- make a self-filling table based on a generator function
 local function cache(func)
 	return setmetatable({}, {
 		__index = function(self, k)
@@ -8,6 +11,15 @@ local function cache(func)
 	})
 end
 
+-- make a function cache its results from previous calls
+local function fncache(func)
+	local cache = {}
+	return function(arg)
+		cache[arg] = cache[arg] or func(arg)
+		return cache[arg]
+	end
+end
+
 local sqrt = math.sqrt
 local sin = math.sin
 local cos = math.cos
@@ -15,6 +27,11 @@ local pow = math.pow
 local exp = math.exp
 local pi = math.pi
 local abs = math.abs
+
+function flip(fn)
+	return function(x) return 1 - fn(x) end
+end
+flip = fncache(flip)
 
 function bounce(t) return 4 * t * (1 - t) end
 function tri(t) return 1 - abs(2 * t - 1) end
@@ -186,5 +203,4 @@ end
 function inOutSine(x)
 	return 0.5 - 0.5 * cos(x * pi)
 end
-
-return
+return Def.Actor {}
