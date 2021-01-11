@@ -1,4 +1,4 @@
- --std.xml
+--std.xml
 
 local xero = setmetatable(xero, xero)
 xero.__index = _G
